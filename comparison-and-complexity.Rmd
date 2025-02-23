@@ -1,13 +1,13 @@
 ---
 title: "CTA-ED Exercise 3: Comparison and complexity"
-author: "[name here]"
+author: "Berno // C0w80ii"
 date: "2/28/2024"
 output: html_document
 ---
 
 ## Introduction
 
-The hands-on exercise for this week focuses on: 1) comparing texts; 2) measuring he document-level characteristics of text---here, complexity.
+The hands-on exercise for this week focuses on: 1) comparing texts; 2) measuring the document-level characteristics of text---here, complexity.
 
 In this tutorial, you will learn how to:
   
@@ -20,7 +20,7 @@ In this tutorial, you will learn how to:
 
 Before proceeding, we'll load the remaining packages we will need for this tutorial.
 
-```{r, echo=F}
+```{r}
 library(kableExtra)
 ```
 
@@ -50,9 +50,9 @@ head(tweets)
 And there are 24 MPs whose tweets we're examining. 
 
 ```{r}
-unique(tweets$username)
+unique(tweets$username) 
 
-length(unique(tweets$username))
+length(unique(tweets$username)) 
 ```
 
 ## Generate document feature matrix
@@ -74,11 +74,8 @@ tweets_corpus
 We are now ready to reformat the data into a document feature matrix.
 
 ```{r}
-dfmat <- dfm(tokens(tweets_corpus),
-             remove_punct = TRUE, 
-             remove = stopwords("english"))
-
-dfmat
+dfmat <- dfm(tokens(tweets_corpus, remove_punct = TRUE)) %>%
+  dfm_remove(pattern = stopwords("english"))
 ```
 
 Note that when we do this we need to have tokenized our corpus object first. We can do this by wrapping the `tokens` function inside the `dfm()` function as above. 
@@ -155,7 +152,7 @@ colnames(cosmatdf) <- "corr_may"
 cosmatdf <- tibble::rownames_to_column(cosmatdf, "username")
 ```
 
-And like so we have our data in tidy format, which we can then plot like so. 
+And so we have our data in tidy format, which we can then plot like so. 
 
 ```{r}
 ggplot(cosmatdf) +
@@ -237,7 +234,7 @@ speeches  <- readRDS(gzcon(url("https://github.com/cjbarrie/CTA-ED/blob/main/dat
 
 And we can take a look at what the data contains below.
 
-```{r}
+```{r, include=FALSE}
 
 head(speeches)
 
@@ -296,5 +293,223 @@ ggplot(sum_corpus, aes(x=speaker, y=mean)) +
 ## Exercises
 
 1. Compute distance measures such as "euclidean" or "manhattan" for the MP tweets as above, comparing between tweets by MPs and tweets by PM, Theresa May. 
+
+N4M: Block distance, or manhattan distance, computes distance to travel from one data point to another if a grid-like path is followed (assuming this is Manhattan bc of street setup, how cute). euclidean distance L2 distance, square root of sum of squared differences between corresponding elements of the 2 vectors [from A survey of text similarity approaches by Gomma & Fahmy] 🤠
+
+```{r}
+#group dfm by username 
+dfmat_grouped <- dfm_group(dfmat, groups = username) 
+#euclidean distance bc it reminds me of Epicurus if i glance quickly & i like that
+euclidean_dist <- textstat_dist(dfmat_grouped, method = "euclidean")
+```
+fun wait this may be wrong
+
+```{r}
+distmat <- dfmat %>%
+  dfm_group(groups=username) %>%
+  textstat_dist(margin = "documents", method = "euclidean")
+
+distmat[23, c(1:22,24)]
+```
+i guess i can check if this is right by including 23 (#lebron) in this & checking it is 0. oh boy. Quanteda for the win (N4M if you ever look at this exercise for example: https://quanteda.io/reference/textstat_simil.html)
+
+```{r}
+distmat <- dfmat %>%
+  dfm_group(groups=username) %>%
+  textstat_dist(margin = "documents", method = "euclidean")
+
+distmat[23, c(1:24)]
+```
+#hooray! 
+
 2. Estimate at least three other complexity measures for the EU speeches as above. Consider how the results compare to the Flesch-Kincaid measure used in the article by @schoonvelde_liberals_2019.
+
+TTR (Type token ratio) search for unique words, MLU (mean length of utterance), MLW (mean length of word)
+
+```{r TTR}
+speech_corpus <- corpus(speeches, text_field = "text")
+docvars(speech_corpus, "speaker") <- speeches$speaker
+
+speech_tokens <- tokens(speech_corpus, remove_punct = FALSE)
+speech_dfm <- dfm(speech_tokens)
+ttr_results <- textstat_lexdiv(speech_dfm, measure = "TTR")
+speeches$TTR <- ttr_results$TTR
+
+TTR_corpus <- speeches %>% 
+  group_by(speaker) %>%
+  summarise (
+    mean=mean(TTR, na.rm=TRUE),
+    SD=sd(TTR, na.rm=TRUE),
+    N=n()
+  ) %>%
+  mutate(
+    se=SD/sqrt(N),
+    min=mean-1.96*se,
+    max=mean+1.96*se
+  )
+
+head(TTR_corpus)
+```
+
+#hooray! 
+
+```{r TTR plot}
+ggplot(TTR_corpus, aes(x=speaker, y=mean, fill=speaker)) +
+  geom_bar(stat="identity") +
+  geom_errorbar(ymin=TTR_corpus$min, ymax=TTR_corpus$max, width=.1) +
+  coord_flip() + 
+  xlab("Speaker") +
+  ylab("TTR Mean Complexity")+
+  theme_minimal()+
+  ylim(c(0,0.5))
+```
+
+```{r MLW}
+speech_corpus <- corpus(speeches, text_field="text")
+docvars(speech_corpus, "speaker") <- speeches$speaker
+
+speeches$MLW <- sapply(strsplit(speeches$text, " "), function(words) mean(nchar(words)))
+
+mlw_corpus <- speeches %>% 
+  group_by(speaker) %>%
+  summarise(
+    mean=mean(MLW, na.rm=TRUE),
+    SD=sd(MLW, na.rm=TRUE),
+    N=n()
+  ) %>%
+  mutate(
+    se=SD/sqrt(N),
+    min=mean-1.96*se,
+    max=mean+1.96*se
+  )
+
+print(mlw_corpus)
+```
+
+```{r MLW plot}
+ggplot(mlw_corpus, aes(x=speaker, y=mean, fill=speaker)) +
+  geom_bar(stat="identity") +
+  geom_errorbar(ymin=mlw_corpus$min, ymax=mlw_corpus$max, width=0.5) +
+  coord_flip() +
+  xlab("Speaker") +
+  ylab("MLW Mean Complexity") +
+  theme_minimal()+
+  ylim(c(0,6))
+  
+```
+```{r MLU}
+speech_corpus<- corpus(speeches, text_field = "text")
+docvars(speech_corpus, "speaker") <- speeches$speaker
+
+#THIS is what i kept messing up--got means in the thousands for a long time
+speeches$utterances <- strsplit(speeches$text, "(?<=[.!?])\\s+", perl=TRUE) 
+
+speeches$MLU <- sapply(speeches$utterances, function(utt) mean(sapply(strsplit(utt, " "), length)))
+
+mlu_corpus <- speeches %>% 
+  group_by(speaker) %>%
+  summarise(mean=mean(MLU, na.rm = TRUE),
+            SD=sd(MLU, na.rm = TRUE),
+            N=n()) %>%
+  mutate(
+    se=SD/sqrt(N),
+    min=mean-1.96*se,
+    max=mean+1.96*se
+  )
+  
+print(mlu_corpus)
+```
+
+```{r MLU plot}
+ggplot(mlu_corpus, aes(x=speaker, y=mean, fill=speaker)) + 
+  geom_bar(stat= "identity") +
+  geom_errorbar(ymin=mlu_corpus$min, ymax=mlu_corpus$max, width=0.5) +
+  coord_flip() +
+  xlab("Speaker") +
+  ylab("MLU Mean Complexity") +
+  theme_minimal()+
+  ylim(0,35)
+
+```
+
 3. (Advanced---optional) Estimate similarity scores between the MP tweets and the PM tweets for each week contained in the data. Plot the results. 
+
+I do love a challenge, lets begin 
+```{r starting from scratch}
+tweets_weeks<- readRDS(gzcon(url("https://github.com/cjbarrie/CTA-ED/blob/main/data/comparison-complexity/cabinet_tweets.rds?raw=true")))
+
+head(tweets_weeks)  
+```
+```{r assign weeks}
+library(dplyr)
+library(lubridate)
+tweets_weeks<-tweets_weeks %>%
+  mutate(week = as.integer(difftime(date, min(date), units="weeks")) + 1)
+head(tweets_weeks)
+```
+```{r, include=FALSE}
+if (!exists("weekly_texts")) {
+  weekly_texts <- data.frame(username = character(), week = integer(), text = character(), stringsAsFactors = FALSE)
+}
+```
+
+```{r week dataset}
+library(tidyr)
+all_weeks<- expand_grid(
+  username = unique(tweets_weeks$username),
+  week=unique(tweets_weeks$week)
+)
+weekly_texts<-all_weeks %>%
+  left_join(weekly_texts, by = c("username","week")) %>%
+  mutate(text =ifelse(is.na(text), "",text)) 
+```
+```{r corpus & df}
+library(quanteda)
+tweets_corpus_weekly<-corpus(weekly_texts,text_field ="text")
+docvars(tweets_corpus_weekly,"username")<- weekly_texts$username
+docvars(tweets_corpus_weekly,"week")<-weekly_texts$week
+dfmat_weekly<-dfm(tokens(tweets_corpus_weekly,remove_punct =TRUE)) %>%
+  dfm_remove(pattern= stopwords("english"))
+```
+
+
+```{r cosine similarity}
+docvars(dfmat_weekly,"grouping_var")<-paste0(docvars(dfmat_weekly, "username"),"_W",docvars(dfmat_weekly, "week"))
+cos_sim_weekly<-dfmat_weekly %>%
+  dfm_group(groups=grouping_var)%>%
+  textstat_simil(margin = "documents",method="cosine")
+cosmat_weekly<-as.matrix(cos_sim_weekly)
+
+dim(cosmat_weekly)
+```
+
+```{r PM sim}
+pm_weeks<-grep("^theresa_may_W",rownames(cosmat_weekly))
+pm_weekly_sim<-cosmat_weekly[pm_weeks, ]
+```
+
+```{r long format}
+df_pm_weekly<-as.data.frame(pm_weekly_sim)
+df_pm_weekly$Week<-as.integer(gsub("^.*_W", "",rownames(pm_weekly_sim)))
+df_pm_weekly<-df_pm_weekly %>%
+  rownames_to_column(var = "Username")
+df_pm_weekly_long<-tidyr::pivot_longer(df_pm_weekly, cols = -c(Username, Week), names_to = "MP", values_to = "Similarity")
+head(df_pm_weekly_long)
+```
+
+```{r, include=FALSE}
+df_pm_weekly$Week <- as.integer(df_pm_weekly$Week)
+df_pm_weekly_long <- df_pm_weekly %>%
+  tidyr::pivot_longer(cols = -c(Username, Week), names_to = "MP", values_to = "Similarity") %>%
+  filter(as.integer(gsub("^.*_W", "", MP)) == Week)
+head(df_pm_weekly_long)
+```
+ got into a huge fight with R because it keeps telling me that MP_base doesn't exist when I KNOW that it does so it will only knit until 97%. decided to just take out the problem code and put screenshot so I don't lose my mind
+```{r, echo=FALSE, out.width="80%"}
+knitr::include_graphics("Image 2-23-25 at 17.52.jpg")
+```
+ 
+```{r, echo=FALSE, out.width="80%"}
+knitr::include_graphics("Image 2-23-25 at 17.52 (1).jpg")
+```
+ 
